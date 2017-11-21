@@ -225,9 +225,7 @@ var (
 				0xb7, 0x94, 0x38, 0x5f, 0x2d, 0x1e, 0xf7, 0xab,
 				0x6b, 0x49, 0x18, 0x83, 0x31, 0x98, 0x47, 0x53,
 			},
-			chanPoint:      breachOutPoints[0],
-			capacity:       btcutil.Amount(1e7),
-			settledBalance: btcutil.Amount(1e7),
+			chanPoint: breachOutPoints[0],
 			// Set to breachedOutputs 0 and 1 in init()
 			breachedOutputs: []breachedOutput{{}, {}},
 		},
@@ -244,9 +242,7 @@ var (
 				0x6b, 0x49, 0x18, 0x83, 0x31, 0x98, 0x47, 0x53,
 				0x4d, 0x92, 0x73, 0xd1, 0x90, 0x63, 0x81, 0xb4,
 			},
-			chanPoint:      breachOutPoints[1],
-			capacity:       btcutil.Amount(1e7),
-			settledBalance: btcutil.Amount(1e7),
+			chanPoint: breachOutPoints[1],
 			// Set to breachedOutputs 1 and 2 in init()
 			breachedOutputs: []breachedOutput{{}, {}},
 		},
@@ -263,7 +259,6 @@ func init() {
 	// channel point.
 	for i := range retributions {
 		retInfo := &retributions[i]
-		retInfo.remoteIdentity = breachedOutputs[i].signDesc.PubKey
 		retInfo.breachedOutputs[0] = breachedOutputs[i]
 		retInfo.breachedOutputs[1] = breachedOutputs[i+1]
 
@@ -318,6 +313,31 @@ func (frs *failingRetributionStore) Add(retInfo *retributionInfo) error {
 	defer frs.mu.Unlock()
 
 	return frs.rs.Add(retInfo)
+}
+
+func (frs *failingRetributionStore) IsBreached(chanPoint *wire.OutPoint) (bool, error) {
+	frs.mu.Lock()
+	defer frs.mu.Unlock()
+
+	return frs.rs.IsBreached(chanPoint)
+}
+
+func (frs *failingRetributionStore) Finalize(chanPoint *wire.OutPoint,
+	finalTx *wire.MsgTx) error {
+
+	frs.mu.Lock()
+	defer frs.mu.Unlock()
+
+	return frs.rs.Finalize(chanPoint, finalTx)
+}
+
+func (frs *failingRetributionStore) GetFinalizedTxn(
+	chanPoint *wire.OutPoint) (*wire.MsgTx, error) {
+
+	frs.mu.Lock()
+	defer frs.mu.Unlock()
+
+	return frs.rs.GetFinalizedTxn(chanPoint)
 }
 
 func (frs *failingRetributionStore) Remove(key *wire.OutPoint) error {
@@ -415,9 +435,6 @@ func copyRetInfo(retInfo *retributionInfo) *retributionInfo {
 		commitHash:      retInfo.commitHash,
 		chainHash:       retInfo.chainHash,
 		chanPoint:       retInfo.chanPoint,
-		remoteIdentity:  retInfo.remoteIdentity,
-		capacity:        retInfo.capacity,
-		settledBalance:  retInfo.settledBalance,
 		breachedOutputs: make([]breachedOutput, nOutputs),
 	}
 
@@ -432,14 +449,16 @@ func copyRetInfo(retInfo *retributionInfo) *retributionInfo {
 // by an in-memory map. Access to the internal state is provided by a mutex.
 // TODO(cfromknecht) extend to support and test controlled failures.
 type mockRetributionStore struct {
-	mu    sync.Mutex
-	state map[wire.OutPoint]*retributionInfo
+	mu       sync.Mutex
+	state    map[wire.OutPoint]*retributionInfo
+	finalTxs map[wire.OutPoint]*wire.MsgTx
 }
 
 func newMockRetributionStore() *mockRetributionStore {
 	return &mockRetributionStore{
-		mu:    sync.Mutex{},
-		state: make(map[wire.OutPoint]*retributionInfo),
+		mu:       sync.Mutex{},
+		state:    make(map[wire.OutPoint]*retributionInfo),
+		finalTxs: make(map[wire.OutPoint]*wire.MsgTx),
 	}
 }
 
@@ -451,9 +470,38 @@ func (rs *mockRetributionStore) Add(retInfo *retributionInfo) error {
 	return nil
 }
 
+func (rs *mockRetributionStore) IsBreached(chanPoint *wire.OutPoint) (bool, error) {
+	rs.mu.Lock()
+	_, ok := rs.state[*chanPoint]
+	rs.mu.Unlock()
+
+	return ok, nil
+}
+
+func (rs *mockRetributionStore) Finalize(chanPoint *wire.OutPoint,
+	finalTx *wire.MsgTx) error {
+
+	rs.mu.Lock()
+	rs.finalTxs[*chanPoint] = finalTx
+	rs.mu.Unlock()
+
+	return nil
+}
+
+func (rs *mockRetributionStore) GetFinalizedTxn(
+	chanPoint *wire.OutPoint) (*wire.MsgTx, error) {
+
+	rs.mu.Lock()
+	finalTx := rs.finalTxs[*chanPoint]
+	rs.mu.Unlock()
+
+	return finalTx, nil
+}
+
 func (rs *mockRetributionStore) Remove(key *wire.OutPoint) error {
 	rs.mu.Lock()
 	delete(rs.state, *key)
+	delete(rs.finalTxs, *key)
 	rs.mu.Unlock()
 
 	return nil
