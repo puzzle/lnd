@@ -1348,6 +1348,7 @@ func NewLightningChannel(signer Signer, events chainntnfs.ChainNotifier,
 		// Launch the close observer which will vigilantly watch the
 		// network for any broadcasts the current or prior commitment
 		// transactions, taking action accordingly.
+		lc.wg.Add(1)
 		go lc.closeObserver(channelCloseNtfn)
 	}
 
@@ -1671,8 +1672,7 @@ func (lc *LightningChannel) restoreStateLogs(
 		// entry within the updateLog, so we'll just apply it and move
 		// on.
 		if feeUpdate, ok := logUpdate.UpdateMsg.(*lnwire.UpdateFee); ok {
-			newFeeRate := btcutil.Amount(feeUpdate.FeePerKw)
-			lc.pendingAckFeeUpdate = &newFeeRate
+			lc.pendingAckFeeUpdate = &feeUpdate.FeePerKw
 			continue
 		}
 
@@ -1768,6 +1768,10 @@ type BreachRetribution struct {
 	// HtlcRetributions is a slice of HTLC retributions for each output
 	// active HTLC output within the breached commitment transaction.
 	HtlcRetributions []HtlcRetribution
+
+	// Err is used to reliably hand-off the breach retribution to the breach
+	// arbiter.
+	Err chan error
 }
 
 // newBreachRetribution creates a new fully populated BreachRetribution for the
@@ -1944,6 +1948,7 @@ func newBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 		RemoteOutpoint:       remoteOutpoint,
 		RemoteOutputSignDesc: remoteSignDesc,
 		HtlcRetributions:     htlcRetributions,
+		Err:                  make(chan error),
 	}, nil
 }
 
@@ -1957,6 +1962,8 @@ func newBreachRetribution(chanState *channeldb.OpenChannel, stateNum uint64,
 //
 // NOTE: This MUST be run as a goroutine.
 func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEvent) {
+	defer lc.wg.Done()
+
 	walletLog.Infof("Close observer for ChannelPoint(%v) active",
 		lc.channelState.FundingOutpoint)
 
@@ -2010,7 +2017,6 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 	}
 
 	lc.Lock()
-	defer lc.Unlock()
 
 	walletLog.Warnf("Unprompted commitment broadcast for ChannelPoint(%v) "+
 		"detected!", lc.channelState.FundingOutpoint)
@@ -2023,6 +2029,7 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 	remoteStateNum := lc.channelState.RemoteCommitment.CommitHeight
 
 	// TODO(roasbeef): track heights distinctly?
+
 	switch {
 	// If state number spending transaction matches the current latest
 	// state, then they've initiated a unilateral close. So we'll trigger
@@ -2054,9 +2061,11 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 			CloseType:      channeldb.ForceClose,
 			IsPending:      true,
 		}
+
 		if err := lc.DeleteState(&closeSummary); err != nil {
-			walletLog.Errorf("unable to delete channel state: %v",
-				err)
+			lc.Unlock()
+			walletLog.Errorf("unable to delete channel state: %v", err)
+			return
 		}
 
 		// TODO(roasbeef): need to handle case of if >
@@ -2076,6 +2085,7 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 			keyRing, lc.localChanCfg, lc.remoteChanCfg,
 			*commitSpend.SpenderTxHash)
 		if err != nil {
+			lc.Unlock()
 			walletLog.Errorf("unable to create htlc "+
 				"resolutions: %v", err)
 			return
@@ -2086,6 +2096,7 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 		// the commitment transaction.
 		selfP2WKH, err := commitScriptUnencumbered(keyRing.noDelayKey)
 		if err != nil {
+			lc.Unlock()
 			walletLog.Errorf("unable to create self commit "+
 				"script: %v", err)
 			return
@@ -2120,6 +2131,17 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 			}
 		}
 
+		// We'll also send all the details necessary to re-claim funds
+		// that are suspended within any contracts.
+		unilateralCloseSummary := &UnilateralCloseSummary{
+			SpendDetail:         commitSpend,
+			ChannelCloseSummary: closeSummary,
+			SelfOutPoint:        selfPoint,
+			SelfOutputSignDesc:  selfSignDesc,
+			MaturityDelay:       uint32(lc.remoteChanCfg.CsvDelay),
+			HtlcResolutions:     htlcResolutions,
+		}
+
 		// TODO(roasbeef): send msg before writing to disk
 		//  * need to ensure proper fault tolerance in all cases
 		//  * get ACK from the consumer of the ntfn before writing to disk?
@@ -2128,16 +2150,13 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 		// Notify any subscribers that we've detected a unilateral
 		// commitment transaction broadcast.
 		close(lc.UnilateralCloseSignal)
+		lc.Unlock()
 
-		// We'll also send all the details necessary to re-claim funds
-		// that are suspended within any contracts.
-		lc.UnilateralClose <- &UnilateralCloseSummary{
-			SpendDetail:         commitSpend,
-			ChannelCloseSummary: closeSummary,
-			SelfOutPoint:        selfPoint,
-			SelfOutputSignDesc:  selfSignDesc,
-			MaturityDelay:       uint32(lc.remoteChanCfg.CsvDelay),
-			HtlcResolutions:     htlcResolutions,
+		select {
+		case lc.UnilateralClose <- unilateralCloseSummary:
+		case <-lc.quit:
+			walletLog.Errorf("channel shutting down")
+			return
 		}
 
 	// If the state number broadcast is lower than the remote node's
@@ -2151,14 +2170,34 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 			"broadcast!!!", lc.channelState.FundingOutpoint,
 			remoteStateNum)
 
+		if err := lc.channelState.MarkBorked(true); err != nil {
+			lc.Unlock()
+			walletLog.Errorf("unable to mark channel as borked: %v", err)
+			return
+		}
+
+		settledBalance := lc.channelState.LocalCommitment.LocalBalance.ToSatoshis()
+		closeSummary := channeldb.ChannelCloseSummary{
+			ChanPoint:      lc.channelState.FundingOutpoint,
+			ChainHash:      lc.channelState.ChainHash,
+			ClosingTXID:    *commitSpend.SpenderTxHash,
+			RemotePub:      lc.channelState.IdentityPub,
+			Capacity:       lc.Capacity,
+			SettledBalance: settledBalance,
+			CloseType:      channeldb.BreachClose,
+			IsPending:      true,
+		}
+
 		// Create a new reach retribution struct which contains all the
 		// data needed to swiftly bring the cheating peer to justice.
 		retribution, err := newBreachRetribution(lc.channelState,
 			broadcastStateNum, commitTxBroadcast)
 		if err != nil {
+			lc.Unlock()
 			walletLog.Errorf("unable to create breach retribution: %v", err)
 			return
 		}
+		lc.Unlock()
 
 		walletLog.Debugf("Punishment breach retribution created: %v",
 			spew.Sdump(retribution))
@@ -2166,7 +2205,39 @@ func (lc *LightningChannel) closeObserver(channelCloseNtfn *chainntnfs.SpendEven
 		// Finally, send the retribution struct over the contract beach
 		// channel to allow the observer the use the breach retribution
 		// to sweep ALL funds.
-		lc.ContractBreach <- retribution
+		select {
+		case lc.ContractBreach <- retribution:
+		case <-lc.quit:
+			walletLog.Errorf("channel shutting down")
+			return
+		}
+
+		select {
+		case err, ok := <-retribution.Err:
+			if ok {
+				walletLog.Errorf("unable to handoff "+
+					"retribution info: %v", err)
+				return
+			}
+
+		case <-lc.quit:
+			walletLog.Errorf("channel shutting down")
+			return
+		}
+
+		// At this point, we've successfully received an ack for the
+		// breach close, so we reacquire the channel's mutex and write
+		// the close summary to disk.
+		lc.Lock()
+		err = lc.DeleteState(&closeSummary)
+		lc.Unlock()
+
+		if err != nil {
+			walletLog.Errorf("unable to delete channel state: %v", err)
+			return
+		}
+
+		walletLog.Infof("Breached channel=%v marked pending-closed")
 	}
 }
 
@@ -2218,7 +2289,7 @@ func htlcIsDust(incoming, ourCommit bool,
 	// we'll be using an HTLC success transaction as they're the receiver
 	// of this HTLC.
 	case !incoming && !ourCommit:
-		htlcFee = htlcSuccessFee(feePerKw)
+		htlcFee = htlcTimeoutFee(feePerKw)
 	}
 
 	return (htlcAmt - htlcFee) < dustLimit
@@ -2828,7 +2899,7 @@ func (lc *LightningChannel) createCommitDiff(
 		logUpdates = append(logUpdates, channeldb.LogUpdate{
 			UpdateMsg: &lnwire.UpdateFee{
 				ChanID:   chanID,
-				FeePerKw: uint32(*lc.pendingFeeUpdate),
+				FeePerKw: *lc.pendingFeeUpdate,
 			},
 		})
 	}
@@ -3185,6 +3256,10 @@ func (lc *LightningChannel) ProcessChanSyncMsg(msg *lnwire.ChannelReestablish) (
 	// chain reported by the remote party is not equal to our chain tail,
 	// then we cannot sync.
 	case !oweRevocation && localChainTail.height != msg.RemoteCommitTailHeight:
+		if err := lc.channelState.MarkBorked(true); err != nil {
+			return nil, err
+		}
+
 		return nil, ErrCannotSyncCommitChains
 	}
 
@@ -3212,6 +3287,10 @@ func (lc *LightningChannel) ProcessChanSyncMsg(msg *lnwire.ChannelReestablish) (
 
 	} else if !oweCommitment && remoteChainTip.height+1 !=
 		msg.NextLocalCommitHeight {
+
+		if err := lc.channelState.MarkBorked(true); err != nil {
+			return nil, err
+		}
 
 		// If we don't owe them a commitment, yet the tip of their
 		// chain isn't one more than the next local commit height they
