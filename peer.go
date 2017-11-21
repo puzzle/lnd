@@ -296,7 +296,7 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 	for _, dbChan := range chans {
 		// If the channel isn't yet open, then we don't need to process
 		// it any further.
-		if dbChan.IsPending {
+		if dbChan.IsPending || dbChan.IsBorked {
 			continue
 		}
 
@@ -316,6 +316,13 @@ func (p *peer) loadActiveChannels(chans []*channeldb.OpenChannel) error {
 		if lnChan.RemoteNextRevocation() == nil {
 			peerLog.Debugf("Skipping ChannelPoint(%v), lacking "+
 				"next commit point", chanPoint)
+			continue
+		}
+
+		isBreached, err := p.server.breachArbiter.IsBreached(chanPoint)
+		if err != nil {
+			return err
+		} else if isBreached {
 			continue
 		}
 
@@ -644,6 +651,7 @@ func newDiscMsgStream(p *peer) *msgStream {
 //
 // NOTE: This method MUST be run as a goroutine.
 func (p *peer) readHandler() {
+	defer p.wg.Done()
 
 	// We'll stop the timer after a new messages is received, and also
 	// reset it after we process the next message.
@@ -775,6 +783,7 @@ out:
 				chanStream = newChanMsgStream(p, targetChan)
 				chanMsgStreams[targetChan] = chanStream
 				chanStream.Start()
+				defer chanStream.Stop()
 			}
 
 			// With the stream obtained, add the message to the
@@ -785,13 +794,9 @@ out:
 		idleTimer.Reset(idleTimeout)
 	}
 
-	p.wg.Done()
-
 	p.Disconnect(errors.New("read handler closed"))
 
-	for cid, chanStream := range chanMsgStreams {
-		chanStream.Stop()
-
+	for cid := range chanMsgStreams {
 		delete(chanMsgStreams, cid)
 	}
 
