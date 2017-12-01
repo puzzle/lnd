@@ -305,6 +305,10 @@ type OpenChannel struct {
 	// negotiate fees, or close the channel.
 	IsInitiator bool
 
+	// IsBorked indicates if the remote party has desynchronized from our
+	// local view.
+	IsBorked bool
+
 	// FundingBroadcastHeight is the height in which the funding
 	// transaction was broadcast. This value can be used by higher level
 	// sub-systems to determine if a channel is stale and/or should have
@@ -516,6 +520,36 @@ func (c *OpenChannel) MarkAsOpen(openLoc lnwire.ShortChannelID) error {
 
 		return putOpenChannel(chanBucket, channel)
 	})
+}
+
+// MarkBorked marks the event when the remote party's state has reached an
+// irreconcilable state.
+func (c *OpenChannel) MarkBorked(borked bool) error {
+	c.Lock()
+	defer c.Unlock()
+
+	if err := c.Db.Update(func(tx *bolt.Tx) error {
+		chanBucket, err := updateChanBucket(tx, c.IdentityPub,
+			&c.FundingOutpoint, c.ChainHash)
+		if err != nil {
+			return err
+		}
+
+		channel, err := fetchOpenChannel(chanBucket, &c.FundingOutpoint)
+		if err != nil {
+			return err
+		}
+
+		channel.IsBorked = borked
+
+		return putOpenChannel(chanBucket, channel)
+	}); err != nil {
+		return err
+	}
+
+	c.IsBorked = borked
+
+	return nil
 }
 
 // putChannel serializes, and stores the current state of the channel in its
@@ -1441,9 +1475,9 @@ func putChanInfo(chanBucket *bolt.Bucket, channel *OpenChannel) error {
 	if err := writeElements(&w,
 		channel.ChanType, channel.ChainHash, channel.FundingOutpoint,
 		channel.ShortChanID, channel.IsPending, channel.IsInitiator,
-		channel.FundingBroadcastHeight, channel.NumConfsRequired,
-		channel.IdentityPub, channel.Capacity, channel.TotalMSatSent,
-		channel.TotalMSatReceived,
+		channel.IsBorked, channel.FundingBroadcastHeight,
+		channel.NumConfsRequired, channel.IdentityPub, channel.Capacity,
+		channel.TotalMSatSent, channel.TotalMSatReceived,
 	); err != nil {
 		return err
 	}
@@ -1541,8 +1575,9 @@ func fetchChanInfo(chanBucket *bolt.Bucket, channel *OpenChannel) error {
 	if err := readElements(r,
 		&channel.ChanType, &channel.ChainHash, &channel.FundingOutpoint,
 		&channel.ShortChanID, &channel.IsPending, &channel.IsInitiator,
-		&channel.FundingBroadcastHeight, &channel.NumConfsRequired,
-		&channel.IdentityPub, &channel.Capacity, &channel.TotalMSatSent,
+		&channel.IsBorked, &channel.FundingBroadcastHeight,
+		&channel.NumConfsRequired, &channel.IdentityPub,
+		&channel.Capacity, &channel.TotalMSatSent,
 		&channel.TotalMSatReceived,
 	); err != nil {
 		return err
