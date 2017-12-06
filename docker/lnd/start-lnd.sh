@@ -41,6 +41,7 @@ set_default() {
 # Set default variables if needed.
 RPCUSER=$(set_default "$RPCUSER" "devuser")
 RPCPASS=$(set_default "$RPCPASS" "devpass")
+RPCHOST=$(set_default "$RPCHOST" "blockchain")
 DEBUG=$(set_default "$DEBUG" "debug")
 NETWORK=$(set_default "$NETWORK" "simnet")
 CHAIN=$(set_default "$CHAIN" "bitcoin")
@@ -51,7 +52,7 @@ lnd \
     "--$CHAIN.rpccert"="/rpc/rpc.cert" \
     "--$CHAIN.active" \
     "--$CHAIN.$NETWORK" \
-    "--$CHAIN.rpchost"="blockchain" \
+    "--$CHAIN.rpchost"="$RPCHOST" \
     "--$CHAIN.rpcuser"="$RPCUSER" \
     "--$CHAIN.rpcpass"="$RPCPASS" \
     --debuglevel="$DEBUG" \

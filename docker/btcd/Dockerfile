@@ -18,8 +18,8 @@ EXPOSE 28901 28902
 # related dependencies.
 RUN go get -u github.com/Masterminds/glide
 
-WORKDIR $GOPATH/src/github.com/roasbeef/btcd
-RUN git clone https://github.com/roasbeef/btcd .
+WORKDIR $GOPATH/src/github.com/btcsuite/btcd
+RUN git clone https://github.com/btcsuite/btcd .
 RUN glide install
 RUN go install . ./cmd/...
 
