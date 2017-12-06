@@ -44,11 +44,13 @@ RPCPASS=$(set_default "$RPCPASS" "devpass")
 DEBUG=$(set_default "$DEBUG" "info")
 NETWORK=$(set_default "$NETWORK" "simnet")
 
+
 PARAMS=$(echo \
     "--$NETWORK" \
     "--debuglevel=$DEBUG" \
     "--rpcuser=$RPCUSER" \
     "--rpcpass=$RPCPASS" \
+    "--configfile=/data/btcd.conf" \
     "--datadir=/data" \
     "--logdir=/data" \
     "--rpccert=/rpc/rpc.cert" \
