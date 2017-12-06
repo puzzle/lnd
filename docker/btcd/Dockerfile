@@ -23,6 +23,8 @@ RUN git clone https://github.com/btcsuite/btcd .
 RUN glide install
 RUN go install . ./cmd/...
 
+RUN mkdir "/rpc"
+
 # Manually generate certificate and add all domains, it is needed to connect
 # "btcctl" and "lnd" to "btcd" over docker links.
 RUN "/go/bin/gencerts" --host="*" --directory="/rpc" --force
