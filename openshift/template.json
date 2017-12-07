@@ -1,0 +1,642 @@
+{
+  "kind": "Template",
+  "apiVersion": "v1",
+  "metadata": {
+    "name": "template",
+    "creationTimestamp": null
+  },
+  "objects": [
+    {
+      "kind": "BuildConfig",
+      "apiVersion": "v1",
+      "metadata": {
+        "name": "lnd",
+        "creationTimestamp": null,
+        "labels": {
+          "app": "lnd"
+        }
+      },
+      "spec": {
+        "triggers": [
+          {
+            "type": "GitHub",
+            "github": {
+              "secret": "pBDeCsUqzV_C0rrKZdKP"
+            }
+          },
+          {
+            "type": "Generic",
+            "generic": {
+              "secret": "BUJFTQ7zxB7H38mngZSW"
+            }
+          },
+          {
+            "type": "ConfigChange"
+          },
+          {
+            "type": "ImageChange",
+            "imageChange": {}
+          }
+        ],
+        "runPolicy": "Serial",
+        "source": {
+          "type": "Git",
+          "git": {
+            "uri": "https://github.com/puzzle/lnd"
+          }
+        },
+        "strategy": {
+          "type": "Docker",
+          "dockerStrategy": {
+            "from": {
+              "kind": "ImageStreamTag",
+              "name": "golang:1.8"
+            },
+            "dockerfilePath": "docker/lnd/Dockerfile"
+          }
+        },
+        "output": {
+          "to": {
+            "kind": "ImageStreamTag",
+            "name": "lnd:latest"
+          }
+        },
+        "resources": {
+          "limits": {
+            "cpu": "500m",
+            "memory": "1Gi"
+          }
+        },
+        "postCommit": {},
+        "nodeSelector": null
+      },
+      "status": {
+        "lastVersion": 0
+      }
+    },
+    {
+      "kind": "BuildConfig",
+      "apiVersion": "v1",
+      "metadata": {
+        "name": "btcd",
+        "creationTimestamp": null,
+        "labels": {
+          "app": "btcd"
+        }
+      },
+      "spec": {
+        "triggers": [
+          {
+            "type": "GitHub",
+            "github": {
+              "secret": "pBDeCsUqzV_C0rrKZdKP"
+            }
+          },
+          {
+            "type": "Generic",
+            "generic": {
+              "secret": "BUJFTQ7zxB7H38mngZSW"
+            }
+          },
+          {
+            "type": "ConfigChange"
+          },
+          {
+            "type": "ImageChange",
+            "imageChange": {}
+          }
+        ],
+        "runPolicy": "Serial",
+        "source": {
+          "type": "Git",
+          "git": {
+            "uri": "https://github.com/puzzle/lnd"
+          },
+          "contextDir": "docker/btcd"
+        },
+        "strategy": {
+          "type": "Docker",
+          "dockerStrategy": {
+            "from": {
+              "kind": "ImageStreamTag",
+              "name": "golang:1.8"
+            }
+          }
+        },
+        "output": {
+          "to": {
+            "kind": "ImageStreamTag",
+            "name": "btcd:latest"
+          }
+        },
+        "resources": {
+          "limits": {
+            "cpu": "500m",
+            "memory": "1Gi"
+          }
+        },
+        "postCommit": {},
+        "nodeSelector": null
+      },
+      "status": {
+        "lastVersion": 0
+      }
+    },
+    {
+      "kind": "ImageStream",
+      "apiVersion": "v1",
+      "metadata": {
+        "name": "btcd",
+        "generation": 1,
+        "creationTimestamp": null,
+        "labels": {
+          "app": "btcd"
+        }
+      },
+      "spec": {
+        "tags": [
+          {
+            "name": "latest",
+            "annotations": null,
+            "from": {
+              "kind": "DockerImage",
+              "name": "docker-registry.default.svc:5000/${OPENSHIFT_NAMESPACE}/btcd:latest"
+            },
+            "generation": null,
+            "importPolicy": {},
+            "referencePolicy": {
+              "type": ""
+            }
+          }
+        ]
+      },
+      "status": {
+        "dockerImageRepository": ""
+      }
+    },
+    {
+      "kind": "ImageStream",
+      "apiVersion": "v1",
+      "metadata": {
+        "name": "lnd",
+        "generation": 1,
+        "creationTimestamp": null,
+        "labels": {
+          "app": "lnd"
+        }
+      },
+      "spec": {
+        "tags": [
+          {
+            "name": "latest",
+            "annotations": null,
+            "from": {
+              "kind": "DockerImage",
+              "name": "docker-registry.default.svc:5000/${OPENSHIFT_NAMESPACE}/lnd:latest"
+            },
+            "generation": null,
+            "importPolicy": {},
+            "referencePolicy": {
+              "type": ""
+            }
+          }
+        ]
+      },
+      "status": {
+        "dockerImageRepository": ""
+      }
+    },
+    {
+      "kind": "ImageStream",
+      "apiVersion": "v1",
+      "metadata": {
+        "name": "golang",
+        "generation": 2,
+        "creationTimestamp": null,
+        "labels": {
+          "app": "btcd"
+        }
+      },
+      "spec": {
+        "tags": [
+          {
+            "name": "1.8",
+            "annotations": {
+              "openshift.io/imported-from": "golang:1.8"
+            },
+            "from": {
+              "kind": "DockerImage",
+              "name": "docker-registry.default.svc:5000/${OPENSHIFT_NAMESPACE}/golang:1.8"
+            },
+            "generation": 2,
+            "importPolicy": {},
+            "referencePolicy": {
+              "type": "Source"
+            }
+          }
+        ]
+      },
+      "status": {
+        "dockerImageRepository": ""
+      }
+    },
+    {
+      "kind": "DeploymentConfig",
+      "apiVersion": "v1",
+      "metadata": {
+        "name": "btcd",
+        "generation": 1,
+        "creationTimestamp": null,
+        "labels": {
+          "app": "btcd"
+        }
+      },
+      "spec": {
+        "strategy": {
+          "type": "Recreate"
+        },
+        "triggers": [
+          {
+            "type": "ImageChange",
+            "imageChangeParams": {
+              "automatic": true,
+              "containerNames": [
+                "btcd"
+              ],
+              "from": {
+                "kind": "ImageStreamTag",
+                "namespace": "${OPENSHIFT_NAMESPACE}",
+                "name": "btcd:latest"
+              }
+            }
+          }
+        ],
+        "replicas": 1,
+        "test": false,
+        "selector": {
+          "app": "btcd",
+          "deploymentconfig": "btcd"
+        },
+        "template": {
+          "metadata": {
+            "creationTimestamp": null,
+            "labels": {
+              "app": "btcd",
+              "deploymentconfig": "btcd"
+            }
+          },
+          "spec": {
+            "volumes": [
+              {
+                "name": "bitcoin-data",
+                "persistentVolumeClaim": {
+                  "claimName": "bitcoin-data"
+                }
+              },
+              {
+                "name": "shared",
+                "persistentVolumeClaim": {
+                  "claimName": "shared"
+                }
+              }
+            ],
+            "containers": [
+              {
+                "name": "btcd",
+                "image": "btcd",
+                "command": [
+                  "./start-btcd.sh"
+                ],
+                "ports": [
+                  {
+                    "containerPort": 18334,
+                    "protocol": "TCP"
+                  },
+                  {
+                    "containerPort": 18555,
+                    "protocol": "TCP"
+                  },
+                  {
+                    "containerPort": 18556,
+                    "protocol": "TCP"
+                  },
+                  {
+                    "containerPort": 28901,
+                    "protocol": "TCP"
+                  },
+                  {
+                    "containerPort": 28902,
+                    "protocol": "TCP"
+                  },
+                  {
+                    "containerPort": 8333,
+                    "protocol": "TCP"
+                  },
+                  {
+                    "containerPort": 8334,
+                    "protocol": "TCP"
+                  },
+                  {
+                    "containerPort": 18333,
+                    "protocol": "TCP"
+                  }
+                ],
+                "env": [
+                  {
+                    "name": "RPCUSER",
+                    "value": "${RPCUSER}"
+                  },
+                  {
+                    "name": "RPCPASS",
+                    "value": "${RPCPASS}"
+                  },
+                  {
+                    "name": "DEBUG",
+                    "value": "debug"
+                  },
+                  {
+                    "name": "NETWORK",
+                    "value": "testnet"
+                  },
+                  {
+                    "name": "HOME",
+                    "value": "/data"
+                  }
+                ],
+                "resources": {
+                  "limits": {
+                    "cpu": "1800m",
+                    "memory": "3Gi"
+                  }
+                },
+                "volumeMounts": [
+                  {
+                    "name": "bitcoin-data",
+                    "mountPath": "/data"
+                  },
+                  {
+                    "name": "shared",
+                    "mountPath": "/rpc"
+                  }
+                ],
+                "terminationMessagePath": "/dev/termination-log",
+                "imagePullPolicy": "Always"
+              }
+            ],
+            "restartPolicy": "Always",
+            "terminationGracePeriodSeconds": 30,
+            "dnsPolicy": "ClusterFirst",
+            "securityContext": {}
+          }
+        }
+      }
+    },
+    {
+      "kind": "DeploymentConfig",
+      "apiVersion": "v1",
+      "metadata": {
+        "name": "lnd",
+        "generation": 1,
+        "creationTimestamp": null,
+        "labels": {
+          "app": "lnd"
+        }
+      },
+      "spec": {
+        "strategy": {
+          "type": "Recreate"
+        },
+        "triggers": [
+          {
+            "type": "ImageChange",
+            "imageChangeParams": {
+              "automatic": true,
+              "containerNames": [
+                "lnd"
+              ],
+              "from": {
+                "kind": "ImageStreamTag",
+                "namespace": "${OPENSHIFT_NAMESPACE}",
+                "name": "lnd:latest"
+              }
+            }
+          }
+        ],
+        "replicas": 1,
+        "test": false,
+        "selector": {
+          "app": "lnd",
+          "deploymentconfig": "lnd"
+        },
+        "template": {
+          "metadata": {
+            "creationTimestamp": null,
+            "labels": {
+              "app": "lnd",
+              "deploymentconfig": "lnd"
+            }
+          },
+          "spec": {
+            "volumes": [
+              {
+                "name": "bitcoin-data",
+                "persistentVolumeClaim": {
+                  "claimName": "bitcoin-data"
+                }
+              },
+              {
+                "name": "shared",
+                "persistentVolumeClaim": {
+                  "claimName": "shared"
+                }
+              }
+            ],
+            "containers": [
+              {
+                "name": "lnd",
+                "image": "lnd",
+                "command": [
+                  "./start-lnd.sh"
+                ],
+                "ports": [
+                  {
+                    "containerPort": 9735,
+                    "protocol": "TCP"
+                  },
+                  {
+                    "containerPort": 10009,
+                    "protocol": "TCP"
+                  }
+                ],
+                "env": [
+                  {
+                    "name": "RPCUSER",
+                    "value": "${RPCUSER}"
+                  },
+                  {
+                    "name": "RPCPASS",
+                    "value": "${RPCPASS}"
+                  },
+                  {
+                    "name": "RPCHOST",
+                    "value": "${RPCHOST}"
+                  },
+                  {
+                    "name": "DEBUG",
+                    "value": "debug"
+                  },
+                  {
+                    "name": "NETWORK",
+                    "value": "testnet"
+                  },
+                  {
+                    "name": "HOME",
+                    "value": "/data"
+                  }
+                ],
+                "resources": {
+                  "limits": {
+                    "cpu": "100m",
+                    "memory": "500Mi"
+                  }
+                },
+                "volumeMounts": [
+                  {
+                    "name": "bitcoin-data",
+                    "mountPath": "/data"
+                  },
+                  {
+                    "name": "shared",
+                    "mountPath": "/rpc"
+                  }
+                ],
+                "terminationMessagePath": "/dev/termination-log",
+                "imagePullPolicy": "Always"
+              }
+            ],
+            "restartPolicy": "Always",
+            "terminationGracePeriodSeconds": 30,
+            "dnsPolicy": "ClusterFirst",
+            "securityContext": {}
+          }
+        }
+      }
+    },
+    {
+      "kind": "Service",
+      "apiVersion": "v1",
+      "metadata": {
+        "name": "btcd",
+        "creationTimestamp": null,
+        "labels": {
+          "app": "btcd"
+        }
+      },
+      "spec": {
+        "ports": [
+          {
+            "name": "8333-tcp",
+            "protocol": "TCP",
+            "port": 8333,
+            "targetPort": 8333
+          },
+          {
+            "name": "8334-tcp",
+            "protocol": "TCP",
+            "port": 8334,
+            "targetPort": 8334
+          },
+          {
+            "name": "18333-tcp",
+            "protocol": "TCP",
+            "port": 18333,
+            "targetPort": 18333
+          },
+          {
+            "name": "18334-tcp",
+            "protocol": "TCP",
+            "port": 18334,
+            "targetPort": 18334
+          },
+          {
+            "name": "18555-tcp",
+            "protocol": "TCP",
+            "port": 18555,
+            "targetPort": 18555
+          },
+          {
+            "name": "18556-tcp",
+            "protocol": "TCP",
+            "port": 18556,
+            "targetPort": 18556
+          },
+          {
+            "name": "28901-tcp",
+            "protocol": "TCP",
+            "port": 28901,
+            "targetPort": 28901
+          },
+          {
+            "name": "28902-tcp",
+            "protocol": "TCP",
+            "port": 28902,
+            "targetPort": 28902
+          }
+        ],
+        "selector": {
+          "app": "btcd",
+          "deploymentconfig": "btcd"
+        },
+        "type": "ClusterIP",
+        "sessionAffinity": "None"
+      },
+      "status": {
+        "loadBalancer": {}
+      }
+    },
+    {
+      "kind": "Service",
+      "apiVersion": "v1",
+      "metadata": {
+        "name": "glusterfs-cluster",
+        "creationTimestamp": null
+      },
+      "spec": {
+        "ports": [
+          {
+            "protocol": "TCP",
+            "port": 1,
+            "targetPort": 1
+          }
+        ],
+        "type": "ClusterIP",
+        "sessionAffinity": "None"
+      },
+      "status": {
+        "loadBalancer": {}
+      }
+    }
+  ],
+  "parameters": [
+    {
+      "name": "RPCUSER",
+      "description": "The RPC username",
+      "value": "lightning"
+    },
+    {
+      "name": "RPCPASS",
+      "description": "The RPC password",
+      "value": "lightning"
+    },
+    {
+      "name": "RPCHOST",
+      "description": "The RPC host",
+      "value": "btcd"
+    },
+    {
+      "name": "OPENSHIFT_NAMESPACE",
+      "description": "The OpenShift namespace, also known as project name",
+      "value": "change-me"
+    }
+  ]
+}
