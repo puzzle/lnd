@@ -18,12 +18,13 @@ EXPOSE 28901 28902
 # related dependencies.
 RUN go get -u github.com/Masterminds/glide
 
-WORKDIR $GOPATH/src/github.com/btcsuite/btcd
-RUN git clone https://github.com/btcsuite/btcd .
+WORKDIR $GOPATH/src/github.com/roasbeef/btcd
+RUN git clone https://github.com/roasbeef/btcd .
 RUN glide install
 RUN go install . ./cmd/...
 
-RUN mkdir "/rpc"
+RUN mkdir "/rpc" "/root/.btcd" "/root/.btcctl"
+RUN touch "/root/.btcd/btcd.conf"
 
 # Manually generate certificate and add all domains, it is needed to connect
 # "btcctl" and "lnd" to "btcd" over docker links.
